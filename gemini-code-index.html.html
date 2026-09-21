@@ -1,4 +1,7 @@
-<!DOCTYPE html>
+from IPython.display import HTML
+
+html_code = """
+<!-- <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -57,7 +60,7 @@
     <!-- 작동 버튼 -->
     <div class="button-group">
         <button id="btnStart">🚀 시작 (Start)</button>
-        <button id="btnStop" disabled>⏸️ 일시정지 (Pause)</button>
+        <button id="btnStop" disabled>⏸ 일시정지 (Pause)</button>
         <button id="btnReset">🔄 초기화 (Reset)</button>
     </div>
 
@@ -281,7 +284,7 @@
         if (isRunning && isPaused) {
             // 일시정지 해제
             isPaused = false;
-            btnStop.innerText = "⏸️ 일시정지 (Pause)";
+            btnStop.innerText = "⏸ 일시정지 (Pause)";
             btnStart.disabled = true;
             return;
         }
@@ -307,11 +310,11 @@
 
         if (isPaused) {
             isPaused = false;
-            btnStop.innerText = "⏸️ 일시정지 (Pause)";
+            btnStop.innerText = "⏸ 일시정지 (Pause)";
             btnStart.disabled = true;
         } else {
             isPaused = true;
-            btnStop.innerText = "▶️ 다시 시작 (Resume)";
+            btnStop.innerText = "▶ 다시 시작 (Resume)";
             btnStart.disabled = false;
         }
     }
@@ -333,7 +336,7 @@
         appleTrail = [];
         arrowTrail = [];
         statusMsg = "READY";
-        btnStop.innerText = "⏸️ 일시정지 (Pause)";
+        btnStop.innerText = "⏸ 일시정지 (Pause)";
         draw();
     }
 
@@ -342,4 +345,7 @@
 </script>
 
 </body>
-</html>
+</html> -->
+"""
+
+display(HTML(html_code))
