@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자유낙하와 포물선 운동 시뮬레이션</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Pretendard', 'Malgun Gothic', sans-serif; }
+        body { background-color: #f8f9fa; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 900px; width: 100%; }
+        h2 { margin-top: 0; color: #333; text-align: center; }
+        
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f1f3f5; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; }
+        .control-group label { font-weight: bold; font-size: 14px; color: #495057; }
+        .slider-box { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex: 1; }
+        .value-disp { width: 60px; font-weight: bold; color: #228be6; }
+        
+        .button-group { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; }
+        button { padding: 10px 24px; font-size: 15px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+        #btnStart { background-color: #2b8a3e; color: white; }
+        #btnStart:hover { background-color: #237032; }
+        #btnStop { background-color: #f59f00; color: white; }
+        #btnStop:hover { background-color: #d98200; }
+        #btnReset { background-color: #868e96; color: white; }
+        #btnReset:hover { background-color: #495057; }
+        button:disabled { background-color: #adb5bd !important; cursor: not-allowed; }
+
+        canvas { background-color: #eef9ff; border: 1px solid #ced4da; border-radius: 8px; display: block; margin: 0 auto; }
+        .info-box { margin-top: 10px; font-size: 13px; color: #868e96; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🍎 자유낙하와 포물선 운동 시뮬레이션</h2>
+    
+    <!-- 컨트롤 패널 -->
+    <div class="controls">
+        <div class="control-group">
+            <label for="angle">발사 각도 (°)</label>
+            <div class="slider-box">
+                <input type="range" id="angle" min="0" max="80" step="0.1" value="36.87">
+                <span id="angleVal" class="value-disp">36.87°</span>
+            </div>
+        </div>
+        <div class="control-group">
+            <label for="speed">발사 속도 (m/s)</label>
+            <div class="slider-box">
+                <input type="range" id="speed" min="10" max="70" step="1" value="25">
+                <span id="speedVal" class="value-disp">25 m/s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 작동 버튼 -->
+    <div class="button-group">
+        <button id="btnStart">🚀 시작 (Start)</button>
+        <button id="btnStop" disabled>⏸️ 일시정지 (Pause)</button>
+        <button id="btnReset">🔄 초기화 (Reset)</button>
+    </div>
+
+    <!-- 캔버스 영역 -->
+    <canvas id="simCanvas" width="840" height="480"></canvas>
+    
+    <div class="info-box">
+        통제 변인: 사과 거리 = 40m, 사과 높이 = 30m, 중력가속도 = 10m/s² | 공기 저항 무시
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 물리 상수 및 통제 변인 설정
+    const D = 40.0; // 수평 거리 (m)
+    const H = 30.0; // 사과 높이 (m)
+    const g = 10.0; // 중력가속도 (m/s^2)
+    
+    // 화면 좌표 변환 스케일 설정
+    const scale = 13.0; // 1m 당 13px
+    const originX = 70; // 사람 위치 (0, 0)의 Canvas X 좌표
+    const originY = 410; // 지표면의 Canvas Y 좌표
+
+    // 시뮬레이션 상태 변수
+    let t = 0;
+    let dt = 0.02; // 프레임당 시간 간격 (s)
+    let timerId = null;
+    let isRunning = false;
+    let isPaused = false;
+    let statusMsg = "READY"; // READY, RUNNING, HIT, MISS
+
+    let appleTrail = [];
+    let arrowTrail = [];
+
+    // 엘리먼트 참조
+    const angleSlider = document.getElementById('angle');
+    const speedSlider = document.getElementById('speed');
+    const angleVal = document.getElementById('angleVal');
+    const speedVal = document.getElementById('speedVal');
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    const btnReset = document.getElementById('btnReset');
+
+    // 이벤트 리스너
+    angleSlider.oninput = () => { angleVal.innerText = angleSlider.value + '°'; draw(); };
+    speedSlider.oninput = () => { speedVal.innerText = speedSlider.value + ' m/s'; draw(); };
+
+    btnStart.onclick = startSimulation;
+    btnStop.onclick = togglePause;
+    btnReset.onclick = resetSimulation;
+
+    // 물리 좌표 -> Canvas 좌표 변환 함수
+    function toCanvasX(x) { return originX + x * scale; }
+    function toCanvasY(y) { return originY - y * scale; }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const angle = parseFloat(angleSlider.value);
+        const speed = parseFloat(speedSlider.value);
+        const rad = angle * Math.PI / 180;
+
+        // 1. 지표면
+        ctx.beginPath();
+        ctx.moveTo(0, originY);
+        ctx.lineTo(canvas.width, originY);
+        ctx.strokeStyle = '#2b8a3e';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // 지표면 아래 배경
+        ctx.fillStyle = '#e9fac8';
+        ctx.fillRect(0, originY, canvas.width, canvas.height - originY);
+
+        // 2. 사과나무 기둥
+        const treeX = toCanvasX(D);
+        ctx.beginPath();
+        ctx.moveTo(treeX, originY);
+        ctx.lineTo(treeX, toCanvasY(H));
+        ctx.strokeStyle = '#8d6e63';
+        ctx.lineWidth = 10;
+        ctx.stroke();
+
+        // 3. 조준선 (직선 궤적)
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        ctx.moveTo(originX, originY);
+        ctx.lineTo(originX + 600 * Math.cos(rad), originY - 600 * Math.sin(rad));
+        ctx.strokeStyle = '#adb5bd';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]); // 점선 초기화
+
+        // 4. 발사자 (사람)
+        ctx.beginPath();
+        ctx.arc(originX, originY - 8, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#1c7ed6';
+        ctx.fill();
+
+        // 현재 시점의 위치 계산
+        let x_a = D;
+        let y_a = Math.max(0, H - 0.5 * g * t * t);
+
+        let x_w = speed * Math.cos(rad) * t;
+        let y_w = speed * Math.sin(rad) * t - 0.5 * g * t * t;
+        if (y_w < 0 && t > 0) y_w = 0;
+
+        // 잔상(궤적) 그리거나 저장
+        if (isRunning || isPaused || statusMsg !== "READY") {
+            if (!isPaused && statusMsg === "RUNNING") {
+                appleTrail.push({ x: x_a, y: y_a });
+                arrowTrail.push({ x: x_w, y: y_w });
+            }
+
+            // 사과 궤적 (점선)
+            ctx.beginPath();
+            appleTrail.forEach((p, i) => {
+                if (i === 0) ctx.moveTo(toCanvasX(p.x), toCanvasY(p.y));
+                else ctx.lineTo(toCanvasX(p.x), toCanvasY(p.y));
+            });
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 화살 궤적 (점선)
+            ctx.beginPath();
+            arrowTrail.forEach((p, i) => {
+                if (i === 0) ctx.moveTo(toCanvasX(p.x), toCanvasY(p.y));
+                else ctx.lineTo(toCanvasX(p.x), toCanvasY(p.y));
+            });
+            ctx.strokeStyle = '#339af0';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // 5. 사과 그려주기
+        ctx.beginPath();
+        ctx.arc(toCanvasX(x_a), toCanvasY(y_a), 10, 0, Math.PI * 2);
+        ctx.fillStyle = '#e03131';
+        ctx.fill();
+        ctx.strokeStyle = '#c92a2a';
+        ctx.stroke();
+
+        // 6. 화살 그려주기
+        ctx.beginPath();
+        ctx.arc(toCanvasX(x_w), toCanvasY(y_w), 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#1971c2';
+        ctx.fill();
+
+        // 7. 한글 안내 및 정보 표시
+        ctx.fillStyle = '#212529';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(`경과 시간: ${t.toFixed(2)} 초`, 20, 30);
+        ctx.fillText(`사과 높이: ${y_a.toFixed(1)} m`, 20, 50);
+        ctx.fillText(`화살 위치: (${x_w.toFixed(1)}m, ${Math.max(0, y_w).toFixed(1)}m)`, 20, 70);
+
+        // 범례 표시
+        ctx.fillStyle = '#495057';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('🔴 사과 (자유낙하)', canvas.width - 150, 30);
+        ctx.fillText('🔵 화살 (포물선 운동)', canvas.width - 150, 50);
+
+        // 8. 명중/실패 판정 메시지 출력
+        if (statusMsg === "HIT") {
+            ctx.fillStyle = 'rgba(255, 236, 153, 0.9)';
+            ctx.fillRect(canvas.width/2 - 120, canvas.height/2 - 40, 240, 60);
+            ctx.strokeStyle = '#f59f00';
+            ctx.strokeRect(canvas.width/2 - 120, canvas.height/2 - 40, 240, 60);
+            
+            ctx.fillStyle = '#d9480f';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('🎯 명중 성공! (HIT)', canvas.width/2, canvas.height/2 - 3);
+            ctx.textAlign = 'left';
+        } else if (statusMsg === "MISS") {
+            ctx.fillStyle = 'rgba(233, 236, 239, 0.9)';
+            ctx.fillRect(canvas.width/2 - 120, canvas.height/2 - 40, 240, 60);
+            ctx.strokeStyle = '#868e96';
+            ctx.strokeRect(canvas.width/2 - 120, canvas.height/2 - 40, 240, 60);
+            
+            ctx.fillStyle = '#495057';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('❌ 명중 실패 (MISS)', canvas.width/2, canvas.height/2 - 3);
+            ctx.textAlign = 'left';
+        }
+    }
+
+    function update() {
+        if (!isRunning || isPaused) return;
+
+        t += dt;
+
+        const angle = parseFloat(angleSlider.value);
+        const speed = parseFloat(speedSlider.value);
+        const rad = angle * Math.PI / 180;
+
+        let x_a = D;
+        let y_a = Math.max(0, H - 0.5 * g * t * t);
+
+        let x_w = speed * Math.cos(rad) * t;
+        let y_w = speed * Math.sin(rad) * t - 0.5 * g * t * t;
+
+        // 충돌/명중 판정 (거리 계산)
+        let dist = Math.sqrt(Math.pow(x_a - x_w, 2) + Math.pow(y_a - y_w, 2));
+
+        if (dist < 1.8 && y_a > 0 && y_w > 0) {
+            statusMsg = "HIT";
+            stopLoop();
+        } else if ((y_a <= 0 && y_w <= 0) || x_w > D + 10 || (x_w >= D && statusMsg !== "HIT")) {
+            statusMsg = "MISS";
+            stopLoop();
+        }
+
+        draw();
+    }
+
+    function startSimulation() {
+        if (isRunning && isPaused) {
+            // 일시정지 해제
+            isPaused = false;
+            btnStop.innerText = "⏸️ 일시정지 (Pause)";
+            btnStart.disabled = true;
+            return;
+        }
+
+        // 초기 시작
+        t = 0;
+        appleTrail = [];
+        arrowTrail = [];
+        statusMsg = "RUNNING";
+        isRunning = true;
+        isPaused = false;
+
+        angleSlider.disabled = true;
+        speedSlider.disabled = true;
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+
+        timerId = setInterval(update, dt * 1000);
+    }
+
+    function togglePause() {
+        if (!isRunning) return;
+
+        if (isPaused) {
+            isPaused = false;
+            btnStop.innerText = "⏸️ 일시정지 (Pause)";
+            btnStart.disabled = true;
+        } else {
+            isPaused = true;
+            btnStop.innerText = "▶️ 다시 시작 (Resume)";
+            btnStart.disabled = false;
+        }
+    }
+
+    function stopLoop() {
+        isRunning = false;
+        isPaused = false;
+        clearInterval(timerId);
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        angleSlider.disabled = false;
+        speedSlider.disabled = false;
+        draw();
+    }
+
+    function resetSimulation() {
+        stopLoop();
+        t = 0;
+        appleTrail = [];
+        arrowTrail = [];
+        statusMsg = "READY";
+        btnStop.innerText = "⏸️ 일시정지 (Pause)";
+        draw();
+    }
+
+    // 초기 화면 그리기
+    draw();
+</script>
+
+</body>
+</html>
